@@ -4,15 +4,15 @@ use serde::Deserialize;
 use serde_xml_rs::from_str;
 
 #[derive(Debug, Deserialize)]
-pub struct Book {
+pub struct Item {
     #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
     pub link: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default, rename = "pubDate", deserialize_with = "deserialize_rfc2822")]
-    pub add_date: Option<DateTime<Utc>>,
+    #[serde(default, deserialize_with = "deserialize_rfc2822")]
+    pub pubDate: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,7 +26,7 @@ pub struct Channel {
     #[serde(default)]
     pub link: Option<String>,
     #[serde(default)]
-    pub item: Option<Vec<Book>>,
+    pub item: Option<Vec<Item>>,
 }
 
 pub fn deserialize_rfc2822<'de, D>(deserializer: D) -> Result<Option<DateTime<Utc>>, D::Error>
