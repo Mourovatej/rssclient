@@ -1,3 +1,7 @@
+use crate::{
+    config::Config,
+    request::{RssFeed, parse_xml, request_channel},
+};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -10,9 +14,13 @@ use ratatui::{
     style::{Style, Styled, Stylize},
     widgets::{Block, Borders, List, ListItem, ListState, Widget},
 };
-use std::{io, thread, time::Duration};
-
-use crate::request::RssFeed;
+use std::error::Error;
+use std::{io, time::Duration};
+pub async fn get_feed(link: &str) -> Result<RssFeed, Box<dyn Error>> {
+    let response = request_channel(link).await?;
+    let body = response.text().await?;
+    Ok(parse_xml(&body)?)
+}
 pub fn get_title_list_items(feed: &RssFeed) -> Vec<ListItem> {
     let items = feed.channel.item.as_deref().unwrap_or(&[]);
     items
@@ -31,7 +39,11 @@ pub fn get_date_list_items(feed: &RssFeed) -> Vec<ListItem> {
         .unwrap_or(&[])
         .iter()
         .map(|item| {
-            let content = item.pubDate.clone().unwrap().to_string();
+            let content = item
+                .pubDate
+                .unwrap_or_default()
+                .format("%d-%m-%Y %H:%M")
+                .to_string();
             ListItem::new(content)
         })
         .collect()
@@ -41,6 +53,7 @@ pub fn render_item_list(
     area: Rect,
     list_items: &[ListItem],
     list_dates: &[ListItem],
+    channel_title: &str,
     list_state: &mut ListState,
     feed: &RssFeed,
 ) {
@@ -48,7 +61,6 @@ pub fn render_item_list(
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())
         .split(area);
-    let channel_title = feed.channel.title.as_deref().unwrap_or("Untitled");
 
     let title_list = List::new(list_items.iter().cloned())
         .block(Block::default().title(channel_title).borders(Borders::ALL))
@@ -70,21 +82,36 @@ pub fn render_item_list(
 }
 
 #[allow(clippy::collapsible_if)]
-pub fn ui(feed: &RssFeed) -> Result<(), io::Error> {
+pub async fn ui() -> Result<(), io::Error> {
+    let config = Config::load();
     // setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+    // setup feed
+    let mut feed_index = 0;
     let mut list_state = ListState::default();
+
+    let mut feed = get_feed(&config.feeds[feed_index].link).await.unwrap();
     list_state.select_first();
-    let titles = get_title_list_items(feed);
-    let dates = get_date_list_items(feed);
+    let mut titles = get_title_list_items(&feed);
+    let mut dates = get_date_list_items(&feed);
+    let mut channel_title = config.feeds[feed_index].title.clone();
+
     loop {
         terminal.draw(|f| {
             let area = f.area();
-            render_item_list(f, area, &titles, &dates, &mut list_state, feed);
+            render_item_list(
+                f,
+                area,
+                &titles,
+                &dates,
+                &channel_title,
+                &mut list_state,
+                &feed,
+            );
         })?;
 
         if event::poll(Duration::from_millis(200))? {
@@ -93,6 +120,15 @@ pub fn ui(feed: &RssFeed) -> Result<(), io::Error> {
                     KeyCode::Char('q') | KeyCode::Esc => break,
                     KeyCode::Up => list_state.select_previous(),
                     KeyCode::Down => list_state.select_next(),
+                    KeyCode::Char('n') => {
+                        feed_index = (feed_index + 1) % config.feeds.len();
+                        feed = get_feed(&config.feeds[feed_index].link).await.unwrap();
+                        titles = get_title_list_items(&feed);
+                        dates = get_date_list_items(&feed);
+
+                        channel_title = config.feeds[feed_index].title.clone();
+                        list_state.select_first();
+                    }
                     _ => {}
                 }
             }
