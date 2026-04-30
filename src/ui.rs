@@ -2,6 +2,7 @@ use crate::{
     config::Config,
     request::{RssFeed, parse_xml, request_channel},
 };
+use chrono::{Duration, TimeDelta, Utc};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -16,36 +17,75 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 use std::error::Error;
-use std::{io, time::Duration};
+use std::io;
+use std::time;
+
+pub enum Period {
+    Week,
+    TwoWeeks,
+    Month,
+    Year,
+}
+impl Period {
+    fn to_days(&self) -> i64 {
+        match self {
+            Period::Week => 7,
+            Period::TwoWeeks => 14,
+            Period::Month => 30,
+            Period::Year => 365,
+        }
+    }
+    fn next(&self) -> Period {
+        match self {
+            Period::Week => Period::TwoWeeks,
+            Period::TwoWeeks => Period::Month,
+            Period::Month => Period::Year,
+            Period::Year => Period::Week,
+        }
+    }
+}
 pub async fn get_feed(link: &str) -> Result<RssFeed, Box<dyn Error>> {
     let response = request_channel(link).await?;
     let body = response.text().await?;
     Ok(parse_xml(&body)?)
 }
-pub fn get_title_list_items(feed: &RssFeed) -> Vec<ListItem<'_>> {
+#[allow(clippy::collapsible_if)]
+pub fn get_title_list_items<'a>(feed: &'a RssFeed, period: &Period) -> Vec<ListItem<'a>> {
+    let now = chrono::Utc::now();
+    let period_days = period.to_days();
+
     let items = feed.channel.item.as_deref().unwrap_or(&[]);
     items
         .iter()
-        .map(|item| {
-            let content = item.title.clone().unwrap_or_else(|| "Untitled".to_string());
-            ListItem::new(content)
+        .filter_map(|item| {
+            if let Some(pub_date) = item.pub_date {
+                if now.signed_duration_since(pub_date) <= Duration::days(period_days) {
+                    let content = item.title.as_deref().unwrap_or("Untitled");
+                    return Some(ListItem::new(content));
+                }
+            }
+            None
         })
         .collect()
 }
 
-pub fn get_date_list_items(feed: &RssFeed) -> Vec<ListItem<'_>> {
+#[allow(clippy::collapsible_if)]
+pub fn get_date_list_items<'a>(feed: &'a RssFeed, period: &Period) -> Vec<ListItem<'a>> {
+    let now = chrono::Utc::now();
+    let period_days = period.to_days();
     feed.channel
         .item
         .as_deref()
         .unwrap_or(&[])
         .iter()
-        .map(|item| {
-            let content = item
-                .pub_date
-                .unwrap_or_default()
-                .format("%d-%m-%Y %H:%M")
-                .to_string();
-            ListItem::new(content)
+        .filter_map(|item| {
+            if let Some(pub_date) = item.pub_date {
+                if now.signed_duration_since(pub_date) <= Duration::days(period_days) {
+                    let content = pub_date.format("%d-%m-%Y %H:%M").to_string();
+                    return Some(ListItem::new(content));
+                }
+            }
+            None
         })
         .collect()
 }
@@ -56,6 +96,7 @@ pub fn render_item_list(
     list_dates: &[ListItem],
     channel_title: &str,
     list_state: &mut ListState,
+    period: &Period,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -65,7 +106,10 @@ pub fn render_item_list(
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())
         .split(chunks[0]);
-
+    let bottom_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(90), Constraint::Percentage(10)].as_ref())
+        .split(chunks[1]);
     let title_list = List::new(list_items.iter().cloned())
         .block(
             Block::default()
@@ -99,9 +143,13 @@ pub fn render_item_list(
 
     let keybinds_paragraph = Paragraph::new(Text::from(keybinds_text.join(" | ")))
         .block(Block::default().borders(Borders::ALL).title("Keybinds"));
+    let period_paragraph = Paragraph::new(Text::from(period.to_days().to_string()))
+        .block(Block::default().borders(Borders::ALL).title("Period"))
+        .style(Style::new().green());
     frame.render_stateful_widget(title_list, list_chunks[0], list_state);
     frame.render_stateful_widget(date_list, list_chunks[1], list_state);
-    frame.render_widget(keybinds_paragraph, chunks[1]);
+    frame.render_widget(keybinds_paragraph, bottom_chunks[0]);
+    frame.render_widget(period_paragraph, bottom_chunks[1]);
 }
 pub fn render_item_details(frame: &mut Frame, area: Rect, feed: &RssFeed, list_state: &ListState) {
     if let Some(index) = list_state.selected() {
@@ -153,23 +201,31 @@ pub async fn ui() -> Result<(), io::Error> {
     // setup feed
     let mut feed_index = 0;
     let mut list_state = ListState::default();
-
+    let mut period = Period::Year;
     let mut feed = get_feed(&config.feeds[feed_index].link).await.unwrap();
     list_state.select_first();
-    let mut titles = get_title_list_items(&feed);
-    let mut dates = get_date_list_items(&feed);
+    let mut titles = get_title_list_items(&feed, &period);
+    let mut dates = get_date_list_items(&feed, &period);
     let mut channel_title = config.feeds[feed_index].title.clone();
     let mut details_popup = false;
     loop {
         terminal.draw(|f| {
             let area = f.area();
-            render_item_list(f, area, &titles, &dates, &channel_title, &mut list_state);
+            render_item_list(
+                f,
+                area,
+                &titles,
+                &dates,
+                &channel_title,
+                &mut list_state,
+                &period,
+            );
             if details_popup {
                 render_item_details(f, area, &feed, &list_state);
             };
         })?;
 
-        if event::poll(Duration::from_millis(200))? {
+        if event::poll(std::time::Duration::from_millis(200))? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => break,
@@ -178,13 +234,19 @@ pub async fn ui() -> Result<(), io::Error> {
                     KeyCode::Char('n') => {
                         feed_index = (feed_index + 1) % config.feeds.len();
                         feed = get_feed(&config.feeds[feed_index].link).await.unwrap();
-                        titles = get_title_list_items(&feed);
-                        dates = get_date_list_items(&feed);
+                        titles = get_title_list_items(&feed, &period);
+                        dates = get_date_list_items(&feed, &period);
 
                         channel_title = config.feeds[feed_index].title.clone();
                         list_state.select_first();
                     }
                     KeyCode::Enter => details_popup = !details_popup,
+                    KeyCode::Char('t') => {
+                        period = period.next();
+                        titles = get_title_list_items(&feed, &period);
+                        dates = get_date_list_items(&feed, &period);
+                        list_state.select_first();
+                    }
                     _ => {}
                 }
             }
