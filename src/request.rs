@@ -11,7 +11,7 @@ pub struct Item {
     pub link: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_rfc2822")]
+    #[serde(default, rename = "pubDate", deserialize_with = "deserialize_rfc2822")]
     pub pub_date: Option<DateTime<Utc>>,
 }
 
