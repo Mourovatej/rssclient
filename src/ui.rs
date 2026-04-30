@@ -121,8 +121,7 @@ pub fn render_item_list(
                 ))
                 .borders(Borders::ALL),
         )
-        .highlight_style(Style::new().on_white().black())
-        .highlight_symbol("> ".black())
+        .highlight_symbol("> ")
         .scroll_padding(1)
         .repeat_highlight_symbol(true);
     let date_list = List::new(list_dates.iter().cloned())
@@ -131,7 +130,7 @@ pub fn render_item_list(
                 .title("Date Published")
                 .borders(Borders::ALL),
         )
-        .highlight_style(Style::new().on_white().black())
+        .highlight_symbol("> ")
         .scroll_padding(1);
     let keybinds_text = [
         "Q, Esc: Quit",
