@@ -11,8 +11,9 @@ use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Style, Styled, Stylize},
-    widgets::{Block, Borders, List, ListItem, ListState, Widget},
+    style::{Style, Stylize},
+    text::Text,
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 use std::error::Error;
 use std::{io, time::Duration};
@@ -21,7 +22,7 @@ pub async fn get_feed(link: &str) -> Result<RssFeed, Box<dyn Error>> {
     let body = response.text().await?;
     Ok(parse_xml(&body)?)
 }
-pub fn get_title_list_items(feed: &RssFeed) -> Vec<ListItem> {
+pub fn get_title_list_items(feed: &RssFeed) -> Vec<ListItem<'_>> {
     let items = feed.channel.item.as_deref().unwrap_or(&[]);
     items
         .iter()
@@ -32,7 +33,7 @@ pub fn get_title_list_items(feed: &RssFeed) -> Vec<ListItem> {
         .collect()
 }
 
-pub fn get_date_list_items(feed: &RssFeed) -> Vec<ListItem> {
+pub fn get_date_list_items(feed: &RssFeed) -> Vec<ListItem<'_>> {
     feed.channel
         .item
         .as_deref()
@@ -40,7 +41,7 @@ pub fn get_date_list_items(feed: &RssFeed) -> Vec<ListItem> {
         .iter()
         .map(|item| {
             let content = item
-                .pubDate
+                .pub_date
                 .unwrap_or_default()
                 .format("%d-%m-%Y %H:%M")
                 .to_string();
@@ -55,15 +56,27 @@ pub fn render_item_list(
     list_dates: &[ListItem],
     channel_title: &str,
     list_state: &mut ListState,
-    feed: &RssFeed,
 ) {
     let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(95), Constraint::Percentage(5)].as_ref())
+        .split(area);
+    let list_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())
-        .split(area);
+        .split(chunks[0]);
 
     let title_list = List::new(list_items.iter().cloned())
-        .block(Block::default().title(channel_title).borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title(format!(
+                    "{}  {:?}/{}",
+                    channel_title,
+                    list_state.selected().unwrap() + 1,
+                    list_items.len()
+                ))
+                .borders(Borders::ALL),
+        )
         .highlight_style(Style::new().on_white().black())
         .highlight_symbol("> ".black())
         .scroll_padding(1)
@@ -76,11 +89,58 @@ pub fn render_item_list(
         )
         .highlight_style(Style::new().on_white().black())
         .scroll_padding(1);
+    let keybinds_text = [
+        "Q, Esc: Quit",
+        "n: Next Feed",
+        "Enter: Show Details",
+        "↑: Move Up",
+        "↓: Move Down",
+    ];
 
-    frame.render_stateful_widget(title_list, chunks[0], list_state);
-    frame.render_stateful_widget(date_list, chunks[1], list_state);
+    let keybinds_paragraph = Paragraph::new(Text::from(keybinds_text.join(" | ")))
+        .block(Block::default().borders(Borders::ALL).title("Keybinds"));
+    frame.render_stateful_widget(title_list, list_chunks[0], list_state);
+    frame.render_stateful_widget(date_list, list_chunks[1], list_state);
+    frame.render_widget(keybinds_paragraph, chunks[1]);
 }
+pub fn render_item_details(frame: &mut Frame, area: Rect, feed: &RssFeed, list_state: &ListState) {
+    if let Some(index) = list_state.selected() {
+        // Check if the feed contains items
+        if let Some(items) = &feed.channel.item {
+            // Ensure the index is within bounds
+            if let Some(item) = items.get(index) {
+                // Extract the fields, using default values if they are None
+                let title = item.title.as_deref().unwrap_or("No Title Available");
+                let link = item.link.as_deref().unwrap_or("No Link Available");
+                let description = item
+                    .description
+                    .as_deref()
+                    .unwrap_or("No Description Available");
+                let pub_date = item
+                    .pub_date
+                    .unwrap_or_default()
+                    .format("%d-%m-%Y %H:%M")
+                    .to_string();
+                // Combine the details into a single text string
+                let detail_text = [
+                    "Title: ".to_string() + title + "\n",
+                    "Link: ".to_string() + link + "\n",
+                    "Description: ".to_string() + description + "\n",
+                    "Date Published: ".to_string() + &pub_date,
+                ];
 
+                let popup_block = Block::bordered().title("Details");
+                let centered_area =
+                    area.centered(Constraint::Percentage(70), Constraint::Percentage(40));
+                frame.render_widget(Clear, centered_area);
+                let detail_paragraph = Paragraph::new(detail_text.join(""))
+                    .wrap(Wrap { trim: true })
+                    .block(popup_block);
+                frame.render_widget(detail_paragraph, centered_area);
+            }
+        }
+    }
+}
 #[allow(clippy::collapsible_if)]
 pub async fn ui() -> Result<(), io::Error> {
     let config = Config::load();
@@ -99,19 +159,14 @@ pub async fn ui() -> Result<(), io::Error> {
     let mut titles = get_title_list_items(&feed);
     let mut dates = get_date_list_items(&feed);
     let mut channel_title = config.feeds[feed_index].title.clone();
-
+    let mut details_popup = false;
     loop {
         terminal.draw(|f| {
             let area = f.area();
-            render_item_list(
-                f,
-                area,
-                &titles,
-                &dates,
-                &channel_title,
-                &mut list_state,
-                &feed,
-            );
+            render_item_list(f, area, &titles, &dates, &channel_title, &mut list_state);
+            if details_popup {
+                render_item_details(f, area, &feed, &list_state);
+            };
         })?;
 
         if event::poll(Duration::from_millis(200))? {
@@ -129,6 +184,7 @@ pub async fn ui() -> Result<(), io::Error> {
                         channel_title = config.feeds[feed_index].title.clone();
                         list_state.select_first();
                     }
+                    KeyCode::Enter => details_popup = !details_popup,
                     _ => {}
                 }
             }

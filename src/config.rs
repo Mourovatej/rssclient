@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::path::PathBuf;
 #[derive(Serialize, Deserialize, Default)]
 pub struct ConfigFeed {

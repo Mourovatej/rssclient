@@ -12,7 +12,7 @@ pub struct Item {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default, deserialize_with = "deserialize_rfc2822")]
-    pub pubDate: Option<DateTime<Utc>>,
+    pub pub_date: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Deserialize)]

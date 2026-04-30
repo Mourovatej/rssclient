@@ -1,7 +1,3 @@
-use crate::{
-    config::Config,
-    request::{parse_xml, request_channel},
-};
 use std::error::Error;
 mod config;
 mod request;
