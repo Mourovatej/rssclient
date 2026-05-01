@@ -1,5 +1,5 @@
 use crate::{
-    config::Config,
+    config::{Config, ConfigFeed},
     request::{RssFeed, parse_xml, request_channel},
 };
 use chrono::{Duration, TimeDelta, Utc};
@@ -11,14 +11,14 @@ use crossterm::{
 use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, HorizontalAlignment, Layout, Rect},
     style::{Style, Stylize},
     text::Text,
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
-use std::error::Error;
 use std::io;
 use std::time;
+use std::{error::Error, fmt::Alignment};
 
 pub enum Period {
     Week,
@@ -89,7 +89,7 @@ pub fn get_date_list_items<'a>(feed: &'a RssFeed, period: &Period) -> Vec<ListIt
         })
         .collect()
 }
-pub fn render_item_list(
+pub fn render_item_screen(
     frame: &mut Frame,
     area: Rect,
     list_items: &[ListItem],
@@ -104,11 +104,11 @@ pub fn render_item_list(
         .split(area);
     let list_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(80), Constraint::Percentage(20)].as_ref())
+        .constraints([Constraint::Min(0), Constraint::Max(22)].as_ref())
         .split(chunks[0]);
     let bottom_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(90), Constraint::Percentage(10)].as_ref())
+        .constraints([Constraint::Min(0), Constraint::Max(8)].as_ref())
         .split(chunks[1]);
     let title_list = List::new(list_items.iter().cloned())
         .block(
@@ -116,7 +116,7 @@ pub fn render_item_list(
                 .title(format!(
                     "{}  {:?}/{}",
                     channel_title,
-                    list_state.selected().unwrap() + 1,
+                    list_state.selected().unwrap_or(0) + 1,
                     list_items.len()
                 ))
                 .borders(Borders::ALL),
@@ -134,7 +134,8 @@ pub fn render_item_list(
         .scroll_padding(1);
     let keybinds_text = [
         "Q, Esc: Quit",
-        "n: Next Feed",
+        "N: Next Feed",
+        "T: Change Period",
         "Enter: Show Details",
         "↑: Move Up",
         "↓: Move Down",
@@ -143,8 +144,14 @@ pub fn render_item_list(
     let keybinds_paragraph = Paragraph::new(Text::from(keybinds_text.join(" | ")))
         .block(Block::default().borders(Borders::ALL).title("Keybinds"));
     let period_paragraph = Paragraph::new(Text::from(period.to_days().to_string()))
-        .block(Block::default().borders(Borders::ALL).title("Period"))
-        .style(Style::new().green());
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Period")
+                .title_alignment(HorizontalAlignment::Center),
+        )
+        .style(Style::new().green())
+        .alignment(HorizontalAlignment::Center);
     frame.render_stateful_widget(title_list, list_chunks[0], list_state);
     frame.render_stateful_widget(date_list, list_chunks[1], list_state);
     frame.render_widget(keybinds_paragraph, bottom_chunks[0]);
@@ -189,14 +196,12 @@ pub fn render_item_details(frame: &mut Frame, area: Rect, feed: &RssFeed, list_s
     }
 }
 #[allow(clippy::collapsible_if)]
-pub async fn ui() -> Result<(), io::Error> {
-    let config = Config::load();
+pub async fn ui(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+) -> Result<(), io::Error> {
+    let mut config = Config::load();
     // setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+
     // setup feed
     let mut feed_index = 0;
     let mut list_state = ListState::default();
@@ -210,7 +215,7 @@ pub async fn ui() -> Result<(), io::Error> {
     loop {
         terminal.draw(|f| {
             let area = f.area();
-            render_item_list(
+            render_item_screen(
                 f,
                 area,
                 &titles,
