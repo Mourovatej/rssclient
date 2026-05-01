@@ -2,24 +2,23 @@ use crate::{
     config::{Config, ConfigFeed},
     request::{RssFeed, parse_xml, request_channel},
 };
-use chrono::{Duration, TimeDelta, Utc};
+use chrono::Duration;
 use ratatui::crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, DisableMouseCapture, Event, KeyCode},
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{LeaveAlternateScreen, disable_raw_mode},
 };
 use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, HorizontalAlignment, Layout, Rect},
-    style::{Style, Stylize},
+    style::Style,
     text::Text,
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
-use ratatui_textarea::{Input, Key, TextArea};
+use ratatui_textarea::{Input, TextArea};
+use std::error::Error;
 use std::io;
-use std::time;
-use std::{error::Error, fmt::Alignment};
 
 pub enum Period {
     Week,
@@ -369,7 +368,7 @@ pub async fn ui(
                         }
                         _ => {
                             let input: Input = key.into();
-                            let textarea = match add_form.focused {
+                            match add_form.focused {
                                 Field::Title => &mut add_form.title.input(input),
                                 Field::Link => &mut add_form.link.input(input),
                             };
