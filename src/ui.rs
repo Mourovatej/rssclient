@@ -392,6 +392,7 @@ pub async fn ui(
                             dates = get_date_list_items(&feed, &period);
 
                             channel_title = config.feeds[feed_index].title.clone();
+                            items_list_state.select_first();
                         }
                         KeyCode::Delete => {
                             config.feeds.remove(channels_list_state.selected().unwrap());
