@@ -19,7 +19,6 @@ use ratatui::{
 use ratatui_textarea::{Input, TextArea};
 use std::error::Error;
 use std::io;
-
 pub enum Period {
     Week,
     TwoWeeks,
@@ -116,10 +115,18 @@ pub fn render_item_screen(
     channel_title: &str,
     list_state: &mut ListState,
     period: &Period,
+    message: &str,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(95), Constraint::Percentage(5)].as_ref())
+        .constraints(
+            [
+                Constraint::Percentage(92),
+                Constraint::Percentage(5),
+                Constraint::Percentage(1),
+            ]
+            .as_ref(),
+        )
         .split(area);
     let list_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -161,6 +168,7 @@ pub fn render_item_screen(
         "↓: Move Down",
         "←: Previous Feed",
         "→: Next Feed",
+        "O: Open Link",
     ];
 
     let keybinds_paragraph = Paragraph::new(Text::from(keybinds_text.join(" | ")))
@@ -174,10 +182,12 @@ pub fn render_item_screen(
         )
         .style(Style::new().green())
         .alignment(HorizontalAlignment::Center);
+    let messages_paragraph = Paragraph::new(Text::from(message));
     frame.render_stateful_widget(title_list, list_chunks[0], list_state);
     frame.render_stateful_widget(date_list, list_chunks[1], list_state);
     frame.render_widget(keybinds_paragraph, bottom_chunks[0]);
     frame.render_widget(period_paragraph, bottom_chunks[1]);
+    frame.render_widget(messages_paragraph, chunks[2]);
 }
 pub fn render_item_details(frame: &mut Frame, area: Rect, feed: &RssFeed, list_state: &ListState) {
     if let Some(index) = list_state.selected() {
@@ -199,9 +209,9 @@ pub fn render_item_details(frame: &mut Frame, area: Rect, feed: &RssFeed, list_s
                     .to_string();
                 // Combine the details into a single text string
                 let detail_text = [
-                    "Title: ".to_string() + title + "\n",
-                    "Link: ".to_string() + link + "\n",
-                    "Description: ".to_string() + description + "\n",
+                    "Title: ".to_string() + title + "\n\n",
+                    "Link: ".to_string() + link + "\n\n",
+                    "Description: ".to_string() + description + "\n\n",
                     "Date Published: ".to_string() + &pub_date,
                 ];
 
@@ -235,7 +245,7 @@ pub fn render_add_channel(frame: &mut Frame, area: Rect, form: &mut AddFeedForm)
             .borders(Borders::ALL)
             .title("Title")
             .style(match form.focused {
-                Field::Title => Style::default().fg(ratatui::style::Color::Yellow), // Highlighted
+                Field::Title => Style::default().fg(ratatui::style::Color::Green), // Highlighted
                 Field::Link => Style::default(),
             });
 
@@ -287,6 +297,14 @@ pub fn render_channel_list(
     frame.render_stateful_widget(list, chunks[0], list_state);
     frame.render_widget(hint, chunks[1]);
 }
+
+pub fn empty_feed_check(titles: &[ListItem], message: &mut String) {
+    if titles.is_empty() {
+        *message = "Feed is empty!".to_string();
+    } else {
+        *message = " ".to_string();
+    }
+}
 #[allow(clippy::collapsible_if)]
 pub async fn ui(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -295,6 +313,7 @@ pub async fn ui(
     // setup terminal
 
     // setup feed
+    let mut message = String::new();
     let mut feed_index = 0;
     let mut items_list_state = ListState::default();
     let mut channels_list_state = ListState::default();
@@ -304,6 +323,7 @@ pub async fn ui(
     items_list_state.select_first();
     let mut titles = get_title_list_items(&feed, &period);
     let mut dates = get_date_list_items(&feed, &period);
+    empty_feed_check(&titles, &mut message);
     let mut channel_title = config.feeds[feed_index].title.clone();
     let mut details_popup = false;
     let mut new_channel_popup = false;
@@ -319,7 +339,6 @@ pub async fn ui(
     add_form
         .link
         .set_block(Block::default().borders(Borders::ALL).title("Link"));
-
     loop {
         terminal.draw(|f| {
             let area = f.area();
@@ -331,7 +350,9 @@ pub async fn ui(
                 &channel_title,
                 &mut items_list_state,
                 &period,
+                &message,
             );
+
             if details_popup {
                 render_item_details(f, area, &feed, &items_list_state);
             };
@@ -349,6 +370,7 @@ pub async fn ui(
                     match key.code {
                         KeyCode::Esc | KeyCode::Char('q') => {
                             new_channel_popup = false;
+                            message = "Form saved!".to_string();
                         }
 
                         KeyCode::Tab => {
@@ -365,6 +387,7 @@ pub async fn ui(
                             }
 
                             new_channel_popup = false;
+                            message = "New feed added succesfully!".to_string();
                         }
                         _ => {
                             let input: Input = key.into();
@@ -390,7 +413,7 @@ pub async fn ui(
                             feed = get_feed(&config.feeds[feed_index].link).await.unwrap();
                             titles = get_title_list_items(&feed, &period);
                             dates = get_date_list_items(&feed, &period);
-
+                            empty_feed_check(&titles, &mut message);
                             channel_title = config.feeds[feed_index].title.clone();
                             items_list_state.select_first();
                         }
@@ -414,6 +437,7 @@ pub async fn ui(
                         titles = get_title_list_items(&feed, &period);
                         dates = get_date_list_items(&feed, &period);
 
+                        empty_feed_check(&titles, &mut message);
                         channel_title = config.feeds[feed_index].title.clone();
                         items_list_state.select_first();
                     }
@@ -423,6 +447,7 @@ pub async fn ui(
                         titles = get_title_list_items(&feed, &period);
                         dates = get_date_list_items(&feed, &period);
 
+                        empty_feed_check(&titles, &mut message);
                         channel_title = config.feeds[feed_index].title.clone();
                         items_list_state.select_first();
                     }
@@ -431,10 +456,25 @@ pub async fn ui(
                         period = period.next();
                         titles = get_title_list_items(&feed, &period);
                         dates = get_date_list_items(&feed, &period);
+
+                        empty_feed_check(&titles, &mut message);
                         items_list_state.select_first();
                     }
                     KeyCode::Char('n') => new_channel_popup = !new_channel_popup,
                     KeyCode::Char('l') => channel_list_popup = !channel_list_popup,
+                    KeyCode::Char('o') => {
+                        if let Some(index) = items_list_state.selected() {
+                            if let Some(items) = &feed.channel.item {
+                                if let Some(item) = items.get(index) {
+                                    if let Some(link) = &item.link {
+                                        open::that(link)?;
+                                    } else {
+                                        message = "Could not open the link!".to_string();
+                                    }
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }

@@ -40,7 +40,7 @@ impl Drop for TerminalGuard {
             DisableMouseCapture
         );
         let _ = self.terminal.show_cursor();
-        eprintln!("RSS Client crashed out!");
+        eprintln!("RSS Client closed");
     }
 }
 
