@@ -169,6 +169,7 @@ pub fn render_item_screen(
         "←: Previous Feed",
         "→: Next Feed",
         "O: Open Link",
+        "R: Refresh",
     ];
 
     let keybinds_paragraph = Paragraph::new(Text::from(keybinds_text.join(" | ")))
@@ -305,6 +306,13 @@ pub fn empty_feed_check(titles: &[ListItem], message: &mut String) {
         *message = " ".to_string();
     }
 }
+async fn build_feed_cache(feeds: &[ConfigFeed]) -> Vec<RssFeed> {
+    let mut cache = Vec::new();
+    for feed in feeds {
+        cache.push(get_feed(&feed.link).await.unwrap());
+    }
+    cache
+}
 #[allow(clippy::collapsible_if)]
 pub async fn ui(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -319,10 +327,10 @@ pub async fn ui(
     let mut channels_list_state = ListState::default();
     channels_list_state.select_first();
     let mut period = Period::Year;
-    let mut feed = get_feed(&config.feeds[feed_index].link).await.unwrap();
+    let mut feed_cache = build_feed_cache(&config.feeds).await;
     items_list_state.select_first();
-    let mut titles = get_title_list_items(&feed, &period);
-    let mut dates = get_date_list_items(&feed, &period);
+    let mut titles = get_title_list_items(&feed_cache[feed_index], &period);
+    let mut dates = get_date_list_items(&feed_cache[feed_index], &period);
     empty_feed_check(&titles, &mut message);
     let mut channel_title = config.feeds[feed_index].title.clone();
     let mut details_popup = false;
@@ -354,7 +362,7 @@ pub async fn ui(
             );
 
             if details_popup {
-                render_item_details(f, area, &feed, &items_list_state);
+                render_item_details(f, area, &feed_cache[feed_index], &items_list_state);
             };
             if new_channel_popup {
                 render_add_channel(f, area, &mut add_form);
@@ -388,6 +396,9 @@ pub async fn ui(
 
                             new_channel_popup = false;
                             message = "New feed added succesfully!".to_string();
+                            feed_cache = build_feed_cache(&config.feeds).await;
+                            titles = get_title_list_items(&feed_cache[feed_index], &period);
+                            dates = get_date_list_items(&feed_cache[feed_index], &period);
                         }
                         _ => {
                             let input: Input = key.into();
@@ -410,9 +421,8 @@ pub async fn ui(
                         KeyCode::Enter => {
                             feed_index = channels_list_state.selected().unwrap();
                             channel_list_popup = !channel_list_popup;
-                            feed = get_feed(&config.feeds[feed_index].link).await.unwrap();
-                            titles = get_title_list_items(&feed, &period);
-                            dates = get_date_list_items(&feed, &period);
+                            titles = get_title_list_items(&feed_cache[feed_index], &period);
+                            dates = get_date_list_items(&feed_cache[feed_index], &period);
                             empty_feed_check(&titles, &mut message);
                             channel_title = config.feeds[feed_index].title.clone();
                             items_list_state.select_first();
@@ -420,22 +430,31 @@ pub async fn ui(
                         KeyCode::Delete => {
                             config.feeds.remove(channels_list_state.selected().unwrap());
                         }
-                        KeyCode::Char('s') => config.write()?,
+                        KeyCode::Char('s') => {
+                            config.write()?;
+                            message = "Config saved!".to_string();
+                        }
 
                         _ => {}
                     }
                     continue;
                 }
 
+                async fn build_feed_cache(feeds: &[ConfigFeed]) -> Vec<RssFeed> {
+                    let mut cache = Vec::new();
+                    for feed in feeds {
+                        cache.push(get_feed(&feed.link).await.unwrap());
+                    }
+                    cache
+                }
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => break,
                     KeyCode::Up => items_list_state.select_previous(),
                     KeyCode::Down => items_list_state.select_next(),
                     KeyCode::Right => {
                         feed_index = (feed_index + 1) % config.feeds.len();
-                        feed = get_feed(&config.feeds[feed_index].link).await.unwrap();
-                        titles = get_title_list_items(&feed, &period);
-                        dates = get_date_list_items(&feed, &period);
+                        titles = get_title_list_items(&feed_cache[feed_index], &period);
+                        dates = get_date_list_items(&feed_cache[feed_index], &period);
 
                         empty_feed_check(&titles, &mut message);
                         channel_title = config.feeds[feed_index].title.clone();
@@ -443,9 +462,8 @@ pub async fn ui(
                     }
                     KeyCode::Left => {
                         feed_index = (feed_index + config.feeds.len() - 1) % config.feeds.len();
-                        feed = get_feed(&config.feeds[feed_index].link).await.unwrap();
-                        titles = get_title_list_items(&feed, &period);
-                        dates = get_date_list_items(&feed, &period);
+                        titles = get_title_list_items(&feed_cache[feed_index], &period);
+                        dates = get_date_list_items(&feed_cache[feed_index], &period);
 
                         empty_feed_check(&titles, &mut message);
                         channel_title = config.feeds[feed_index].title.clone();
@@ -454,8 +472,8 @@ pub async fn ui(
                     KeyCode::Enter => details_popup = !details_popup,
                     KeyCode::Char('t') => {
                         period = period.next();
-                        titles = get_title_list_items(&feed, &period);
-                        dates = get_date_list_items(&feed, &period);
+                        titles = get_title_list_items(&feed_cache[feed_index], &period);
+                        dates = get_date_list_items(&feed_cache[feed_index], &period);
 
                         empty_feed_check(&titles, &mut message);
                         items_list_state.select_first();
@@ -464,7 +482,7 @@ pub async fn ui(
                     KeyCode::Char('l') => channel_list_popup = !channel_list_popup,
                     KeyCode::Char('o') => {
                         if let Some(index) = items_list_state.selected() {
-                            if let Some(items) = &feed.channel.item {
+                            if let Some(items) = &feed_cache[feed_index].channel.item {
                                 if let Some(item) = items.get(index) {
                                     if let Some(link) = &item.link {
                                         open::that(link)?;
@@ -475,6 +493,13 @@ pub async fn ui(
                             }
                         }
                     }
+                    KeyCode::Char('r') => {
+                        feed_cache = build_feed_cache(&config.feeds).await;
+                        titles = get_title_list_items(&feed_cache[feed_index], &period);
+                        dates = get_date_list_items(&feed_cache[feed_index], &period);
+                        message = "Refreshed!".to_string();
+                    }
+
                     _ => {}
                 }
             }
