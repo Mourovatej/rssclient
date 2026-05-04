@@ -16,5 +16,6 @@ ratatui-textarea = "0.9.1"
 crossterm = "0.25"
 dirs = "6.0.0"
 open = "5.3.4"
+futures = "0.3.32"
 [profile.release]
 debug = true

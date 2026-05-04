@@ -3,6 +3,7 @@ use crate::{
     request::{RssFeed, parse_xml, request_channel},
 };
 use chrono::Duration;
+use futures::future::join_all;
 use ratatui::crossterm::{
     event::{self, DisableMouseCapture, Event, KeyCode},
     execute,
@@ -321,11 +322,18 @@ pub fn empty_feed_check(titles: &[ListItem], message: &mut String) {
     }
 }
 async fn build_feed_cache(feeds: &[ConfigFeed]) -> Vec<RssFeed> {
-    let mut cache = Vec::new();
-    for feed in feeds {
-        cache.push(get_feed(&feed.link).await.unwrap());
-    }
-    cache
+    let futures: Vec<_> = feeds.iter().map(|feed| get_feed(&feed.link)).collect();
+    join_all(futures)
+        .await
+        .into_iter()
+        .filter_map(|result| match result {
+            Ok(feed) => Some(feed),
+            Err(e) => {
+                eprintln!("Failed to fetch feed: {}", e);
+                None
+            }
+        })
+        .collect()
 }
 #[allow(clippy::collapsible_if)]
 pub async fn ui(
@@ -342,11 +350,27 @@ pub async fn ui(
     channels_list_state.select_first();
     let mut period = Period::Year;
     let mut feed_cache = build_feed_cache(&config.feeds).await;
+    if feed_cache.is_empty() {
+        message = "Failed to load feeds!".to_string();
+    }
+
     items_list_state.select_first();
-    let mut titles = get_title_list_items(&feed_cache[feed_index], &period);
-    let mut dates = get_date_list_items(&feed_cache[feed_index], &period);
+    let mut titles = if !feed_cache.is_empty() {
+        get_title_list_items(&feed_cache[feed_index], &period)
+    } else {
+        Vec::new()
+    };
+    let mut dates = if !feed_cache.is_empty() {
+        get_date_list_items(&feed_cache[feed_index], &period)
+    } else {
+        Vec::new()
+    };
     empty_feed_check(&titles, &mut message);
-    let mut channel_title = config.feeds[feed_index].title.clone();
+    let mut channel_title = config
+        .feeds
+        .get(feed_index)
+        .map(|f| f.title.clone())
+        .unwrap_or_default();
     let mut details_popup = false;
     let mut new_channel_popup = false;
     let mut channel_list_popup = false;
@@ -466,22 +490,24 @@ pub async fn ui(
                     KeyCode::Up => items_list_state.select_previous(),
                     KeyCode::Down => items_list_state.select_next(),
                     KeyCode::Right => {
-                        feed_index = (feed_index + 1) % config.feeds.len();
-                        titles = get_title_list_items(&feed_cache[feed_index], &period);
-                        dates = get_date_list_items(&feed_cache[feed_index], &period);
-
-                        empty_feed_check(&titles, &mut message);
-                        channel_title = config.feeds[feed_index].title.clone();
-                        items_list_state.select_first();
+                        if !feed_cache.is_empty() {
+                            feed_index = (feed_index + 1) % config.feeds.len();
+                            titles = get_title_list_items(&feed_cache[feed_index], &period);
+                            dates = get_date_list_items(&feed_cache[feed_index], &period);
+                            empty_feed_check(&titles, &mut message);
+                            channel_title = config.feeds[feed_index].title.clone();
+                            items_list_state.select_first();
+                        }
                     }
                     KeyCode::Left => {
-                        feed_index = (feed_index + config.feeds.len() - 1) % config.feeds.len();
-                        titles = get_title_list_items(&feed_cache[feed_index], &period);
-                        dates = get_date_list_items(&feed_cache[feed_index], &period);
-
-                        empty_feed_check(&titles, &mut message);
-                        channel_title = config.feeds[feed_index].title.clone();
-                        items_list_state.select_first();
+                        if !feed_cache.is_empty() {
+                            feed_index = (feed_index + config.feeds.len() - 1) % config.feeds.len();
+                            titles = get_title_list_items(&feed_cache[feed_index], &period);
+                            dates = get_date_list_items(&feed_cache[feed_index], &period);
+                            empty_feed_check(&titles, &mut message);
+                            channel_title = config.feeds[feed_index].title.clone();
+                            items_list_state.select_first();
+                        }
                     }
                     KeyCode::Enter => details_popup = !details_popup,
                     KeyCode::Char('t') => {
