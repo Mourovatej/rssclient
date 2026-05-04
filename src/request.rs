@@ -39,7 +39,7 @@ where
             Ok(dt) => Ok(Some(dt.with_timezone(&Utc))),
             Err(err) => Err(serde::de::Error::custom(err)),
         },
-        None => Ok(None),
+        None => Ok(Some(DateTime::default())),
     }
 }
 pub async fn request_channel(link: &str) -> Result<reqwest::Response, reqwest::Error> {

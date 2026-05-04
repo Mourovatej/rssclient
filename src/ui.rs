@@ -71,39 +71,53 @@ pub async fn get_feed(link: &str) -> Result<RssFeed, Box<dyn Error>> {
 pub fn get_title_list_items<'a>(feed: &'a RssFeed, period: &Period) -> Vec<ListItem<'a>> {
     let now = chrono::Utc::now();
     let period_days = period.to_days();
-
     let items = feed.channel.item.as_deref().unwrap_or(&[]);
-    items // Update the blocks based on focus
+
+    items
         .iter()
         .filter_map(|item| {
-            if let Some(pub_date) = item.pub_date {
-                if now.signed_duration_since(pub_date) <= Duration::days(period_days) {
-                    let content = item.title.as_deref().unwrap_or("Untitled");
-                    return Some(ListItem::new(content));
-                }
+            // If there's a date, check the period. If no date, show it anyway
+            let should_show = if let Some(pub_date) = item.pub_date {
+                now.signed_duration_since(pub_date) <= Duration::days(period_days)
+            } else {
+                true // Show items without dates
+            };
+
+            if should_show {
+                let content = item.title.as_deref().unwrap_or("Untitled");
+                Some(ListItem::new(content))
+            } else {
+                None
             }
-            None
         })
         .collect()
 }
-
-#[allow(clippy::collapsible_if)]
 pub fn get_date_list_items<'a>(feed: &'a RssFeed, period: &Period) -> Vec<ListItem<'a>> {
     let now = chrono::Utc::now();
     let period_days = period.to_days();
+
     feed.channel
         .item
         .as_deref()
         .unwrap_or(&[])
         .iter()
         .filter_map(|item| {
-            if let Some(pub_date) = item.pub_date {
-                if now.signed_duration_since(pub_date) <= Duration::days(period_days) {
-                    let content = pub_date.format("%d-%m-%Y %H:%M").to_string();
-                    return Some(ListItem::new(content));
-                }
+            let should_show = if let Some(pub_date) = item.pub_date {
+                now.signed_duration_since(pub_date) <= Duration::days(period_days)
+            } else {
+                true // Show items without dates
+            };
+
+            if should_show {
+                let content = if let Some(pub_date) = item.pub_date {
+                    pub_date.format("%d-%m-%Y %H:%M").to_string()
+                } else {
+                    "No date".to_string()
+                };
+                Some(ListItem::new(content))
+            } else {
+                None
             }
-            None
         })
         .collect()
 }
