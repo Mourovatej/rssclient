@@ -270,7 +270,7 @@ pub fn render_add_channel(frame: &mut Frame, area: Rect, form: &mut AddFeedForm)
             .borders(Borders::ALL)
             .title("Link")
             .style(match form.focused {
-                Field::Link => Style::default().fg(ratatui::style::Color::Yellow), // Highlighted
+                Field::Link => Style::default().fg(ratatui::style::Color::Green), // Highlighted
                 Field::Title => Style::default(),
             });
 
