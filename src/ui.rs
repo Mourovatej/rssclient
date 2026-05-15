@@ -525,7 +525,12 @@ pub async fn ui(
                             if let Some(items) = &feed_cache[feed_index].channel.item {
                                 if let Some(item) = items.get(index) {
                                     if let Some(link) = &item.link {
-                                        open::that(link)?;
+                                        let link = link.clone();
+                                        std::thread::spawn(move || {
+                                            if let Err(e) = open::that(link) {
+                                                eprintln!("Failed to open link: {}", e);
+                                            }
+                                        });
                                     } else {
                                         message = "Could not open the link!".to_string();
                                     }
