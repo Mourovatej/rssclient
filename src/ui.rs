@@ -385,31 +385,31 @@ pub async fn ui(
     add_form
         .link
         .set_block(Block::default().borders(Borders::ALL).title("Link"));
+    terminal.draw(|f| {
+        let area = f.area();
+        render_item_screen(
+            f,
+            area,
+            &titles,
+            &dates,
+            &channel_title,
+            &mut items_list_state,
+            &period,
+            &message,
+        );
+
+        if details_popup {
+            render_item_details(f, area, &feed_cache[feed_index], &items_list_state);
+        };
+        if new_channel_popup {
+            render_add_channel(f, area, &mut add_form);
+        }
+        if channel_list_popup {
+            render_channel_list(f, area, &config, &mut channels_list_state);
+        }
+    })?;
+
     loop {
-        terminal.draw(|f| {
-            let area = f.area();
-            render_item_screen(
-                f,
-                area,
-                &titles,
-                &dates,
-                &channel_title,
-                &mut items_list_state,
-                &period,
-                &message,
-            );
-
-            if details_popup {
-                render_item_details(f, area, &feed_cache[feed_index], &items_list_state);
-            };
-            if new_channel_popup {
-                render_add_channel(f, area, &mut add_form);
-            }
-            if channel_list_popup {
-                render_channel_list(f, area, &config, &mut channels_list_state);
-            }
-        })?;
-
         if event::poll(std::time::Duration::from_millis(200))? {
             if let Event::Key(key) = event::read()? {
                 if new_channel_popup {
@@ -446,6 +446,35 @@ pub async fn ui(
                             };
                         }
                     }
+                    terminal.draw(|f| {
+                        let area = f.area();
+                        render_item_screen(
+                            f,
+                            area,
+                            &titles,
+                            &dates,
+                            &channel_title,
+                            &mut items_list_state,
+                            &period,
+                            &message,
+                        );
+
+                        if details_popup {
+                            render_item_details(
+                                f,
+                                area,
+                                &feed_cache[feed_index],
+                                &items_list_state,
+                            );
+                        };
+                        if new_channel_popup {
+                            render_add_channel(f, area, &mut add_form);
+                        }
+                        if channel_list_popup {
+                            render_channel_list(f, area, &config, &mut channels_list_state);
+                        }
+                    })?;
+
                     continue;
                 }
                 if channel_list_popup {
@@ -475,16 +504,38 @@ pub async fn ui(
 
                         _ => {}
                     }
+                    terminal.draw(|f| {
+                        let area = f.area();
+                        render_item_screen(
+                            f,
+                            area,
+                            &titles,
+                            &dates,
+                            &channel_title,
+                            &mut items_list_state,
+                            &period,
+                            &message,
+                        );
+
+                        if details_popup {
+                            render_item_details(
+                                f,
+                                area,
+                                &feed_cache[feed_index],
+                                &items_list_state,
+                            );
+                        };
+                        if new_channel_popup {
+                            render_add_channel(f, area, &mut add_form);
+                        }
+                        if channel_list_popup {
+                            render_channel_list(f, area, &config, &mut channels_list_state);
+                        }
+                    })?;
+
                     continue;
                 }
 
-                async fn build_feed_cache(feeds: &[ConfigFeed]) -> Vec<RssFeed> {
-                    let mut cache = Vec::new();
-                    for feed in feeds {
-                        cache.push(get_feed(&feed.link).await.unwrap());
-                    }
-                    cache
-                }
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => break,
                     KeyCode::Up => items_list_state.select_previous(),
@@ -547,6 +598,29 @@ pub async fn ui(
 
                     _ => {}
                 }
+                terminal.draw(|f| {
+                    let area = f.area();
+                    render_item_screen(
+                        f,
+                        area,
+                        &titles,
+                        &dates,
+                        &channel_title,
+                        &mut items_list_state,
+                        &period,
+                        &message,
+                    );
+
+                    if details_popup {
+                        render_item_details(f, area, &feed_cache[feed_index], &items_list_state);
+                    };
+                    if new_channel_popup {
+                        render_add_channel(f, area, &mut add_form);
+                    }
+                    if channel_list_popup {
+                        render_channel_list(f, area, &config, &mut channels_list_state);
+                    }
+                })?;
             }
         }
     }
